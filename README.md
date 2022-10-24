@@ -23,11 +23,11 @@ $ terraform plan
 # Apply to create resources
 $ terraform apply --auto-approve
 
-### Manage the kubeconfig file
+# Manage the kubeconfig file
 aws sts get-caller-identity
 aws eks update-kubeconfig --region region --name my_cluster
 
-## Steps to follow
+# Steps to follow
 - Create the S3 bucket manually to store the Statefile and DynamoDB to lock the Statefile
 - Create a terraform templates to deploy your AWS resources (maintain atleast 2AZs);
     - VPC (incl IGW, Subnets, Nat Gateway, EIP, Route table, RT Associations)
