@@ -24,8 +24,8 @@ $ terraform plan
 $ terraform apply --auto-approve
 
 # Manage the kubeconfig file
-aws sts get-caller-identity
-aws eks update-kubeconfig --region region --name my_cluster
+- aws sts get-caller-identity
+- aws eks update-kubeconfig --region region --name my_cluster
 
 # Steps to follow
 - Create the S3 bucket manually to store the Statefile and DynamoDB to lock the Statefile
