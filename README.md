@@ -54,7 +54,6 @@ $ terraform apply --auto-approve
 - Deploy the secrets.yml
     - kubectl apply -f secrets.yml
 - Deploy the Nginx Ingress controller
-    a)
         - curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
         - sudo chmod 700 get_helm.sh
         - ./get_helm.sh
