@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: game-2048
+  labels:
+   app.kubernetes.io/name: app-2048 
+spec:
+  type: ExternalName
+  externalName: tangodb.ckuubfdcqv8s.us-east-1.rds.amazonaws.com #to be changed based on the db created
+  selector: 
+    app.kubernetes.io/name: app-2048
+status:
+  loadBalancer: {}

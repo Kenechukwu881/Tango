@@ -1,0 +1,5 @@
+    eks_tag_environment= "Staging_env"
+    sg_name = "tangords_sg"
+    rds_name = "tango_db"
+    aws_region = "us-east-1"
+    subnet_group = "tango_Subgroup"
