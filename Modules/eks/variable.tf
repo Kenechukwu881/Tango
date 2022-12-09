@@ -2,6 +2,10 @@ variable "cluster-name" {
   type    = string
 }
 
+variable "cluster-version" {
+  type    = string
+}
+
 variable "eks_node_instance_type" {
   type = string
 }

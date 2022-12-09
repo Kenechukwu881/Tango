@@ -43,10 +43,129 @@ $ terraform apply --auto-approve
     - RDS (incl secrets in secret manager, security group, subnet group, sns, cloudwatch logs/metrics)
     - EKS (incl IAM roles (cluster and node), policy, security group (cluster and node), eks-cluster, sns, cloudwatch logs/metrics, node-group)
 
+# More terrafom commands
+terraform plan --var-file=variable/stage.tfvars
+terraform apply --var-file=variable/stage.tfvars --auto-approve
+
 ### run below commands after deploying the above resources
 - aws sts get-caller-identity
 - aws eks update-kubeconfig --region us-east-1 --name tangoeks_cluster
 - kubectl get svc ##To make sure you can talk to the cluster through your machine
+
+--------------------------------------------
+<!-- # Testing new changes to the cluster, and enabling AWS Load Balancer Controller
+# download an IAM policy that allows the AWS Load Balancer Controller to make calls to AWS APIs on your behalf
+- curl -o iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.1/docs/install/iam_policy.json
+# create an IAM policy using the policy that you downloaded in step 3
+- aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam_policy.json
+# create a service account named aws-load-balancer-controller in the kube-system namespace for the AWS Load Balancer Controller
+- kubectl apply -f service.yml
+# verify that the new service role was created
+- kubectl get serviceaccount aws-load-balancer-controller --namespace game-2048
+# Install the AWS Load Balancer Controller using Helm
+- helm repo add eks https://aws.github.io/eks-charts
+- kubectl apply -k "github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master"
+    - git submodule deinit -f . && git submodule update --init --recursive
+    - git submodule update --init --recursive
+- helm install aws-load-balancer-controller eks/aws-load-balancer-controller --set clusterName=tangoeks_cluster --set serviceAccount.create=false --set region=us-east-1 --set vpcId=vpc-0fce1d14275000a7a --set serviceAccount.name=aws-load-balancer-controller -n game-2048 -->
+
+-----------------------------------------------------
+curl -o iam_policy_us-gov.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.4/docs/install/iam_policy_us-gov.json
+aws iam create-policy --policy-name AWSLoadBalancerControllerIAMPolicy --policy-document file://iam_policy.json
+aws eks describe-cluster --name tangoeks_cluster --query "cluster.identity.oidc.issuer" --output text
+
+cat >load-balancer-role-trust-policy.json <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::231596626862:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/7C75D9B4D2FB97CBDCE80913F31D63D7"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "oidc.eks.us-east-1.amazonaws.com/id/7C75D9B4D2FB97CBDCE80913F31D63D7:aud": "sts.amazonaws.com",
+                    "oidc.eks.us-east-1.amazonaws.com/id/7C75D9B4D2FB97CBDCE80913F31D63D7:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+                }
+            }
+        }
+    ]
+}
+EOF
+
+aws iam create-role --role-name AmazonEKSLoadBalancerControllerRole --assume-role-policy-document file://"load-balancer-role-trust-policy.json"
+aws iam attach-role-policy --policy-arn arn:aws:iam::231596626862:policy/AWSLoadBalancerControllerIAMPolicy --role-name AmazonEKSLoadBalancerControllerRole
+
+cat >aws-load-balancer-controller-service-account.yaml <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: aws-load-balancer-controller
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::231596626862:role/AmazonEKSLoadBalancerControllerRole
+EOF
+kubectl apply -f aws-load-balancer-controller-service-account.yaml
+
+
+helm repo add eks https://aws.github.io/eks-charts
+helm repo update
+
+
+602401143452.dkr.ecr.region-code.amazonaws.com/amazon/aws-load-balancer-controller:v2.4.4
+
+
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 602401143452.dkr.ecr.us-east-1.amazonaws.com
+
+            docker pull 602401143452.dkr.ecr.us-east-1.amazonaws.com/amazon/aws-load-balancer-controller:v2.4.5
+
+            docker tag 9387180215c20d661fa3f4a718bafce0dda1dd1df0bae2d16efb03d08ff978f7 231596626862.dkr.ecr.us-east-1.amazonaws.com/eks-testing
+
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 231596626862.dkr.ecr.us-east-1.amazonaws.com/eks-testing
+
+            docker push 231596626862.dkr.ecr.us-east-1.amazonaws.com/eks-testing
+
+kubectl create secret docker-registry albcred \
+  --docker-server=231596626862.dkr.ecr.us-east-1.amazonaws.com \
+  --docker-username=AWS \
+  --docker-password=$(aws ecr get-login-password) \
+  --namespace=kube-system
+
+kubectl apply -k crd  # always check the latest update(github.com/aws/eks-charts/stable/aws-load-balancer-controller//crds?ref=master)
+
+helm install aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system  -f alb.yml --set clusterName=tangoeks_cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --set vpcId=vpc-0fce1d14275000a7a
+
+helm upgrade aws-load-balancer-controller eks/aws-load-balancer-controller -n kube-system  -f alb.yml --set clusterName=tangoeks_cluster --set serviceAccount.create=false --set serviceAccount.name=aws-load-balancer-controller --set region=us-east-1 --set vpcId=vpc-0fce1d14275000a7a
+
+kubectl get deployment -n kube-system aws-load-balancer-controller
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.1/docs/examples/2048/2048_full.yaml
+
+helm delete aws-load-balancer-controller -n kube-system
+helm repo remove nginx-stable
+helm repo list
+helm search repo
+helm show values eks/aws-load-balancer-controller
+
+kubectl get event -n game-2048
+
+kubectl logs -n kube-system deployment.apps/aws-load-balancer-controller
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.4/docs/examples/2048/2048_full.yaml
+
+kubectl delete -f https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.4.4/docs/examples/2048/2048_full.yaml
+
+kubectl get ingress/ingress-2048 -n game-2048
+
+
+
+
+----------------------------------------------------------------------
 - deploy mysql service and establish connection
     - create namespace ##kubectl create namespace game-2048
     - kubectl apply -f mysql.yml
@@ -78,13 +197,21 @@ $ terraform apply --auto-approve
     - cd ingress-nginx-${controller_tag}
     - cd charts/ingress-nginx/
     - helm install -n game-2048 ingress-nginx  -f values.yaml .
+   
+   
+   
+   
     - kubectl --namespace game-2048 get services -o wide -w ingress-nginx-controller
+    - kubectl get pods --all-namespaces
     - kubectl get all -n game-2048
     - kubectl get pods -n game-2048
     - kubectl -n game-2048 logs deploy/ingress-nginx-controller ##check logs in the pod
     - kubectl -n game-2048 logs deploy/ingress-nginx-controller -f
     - kubectl get pods --namespace game-2048 
     - helm -n game-2048 uninstall ingress-nginx ##remove ingress controller
+
+    - kubectl delete all  --all -n game-2048
+    - kubectl delete ingress/ingress-2048 -n game-2048
 
 - Deploy the manifest file
     - kubectl apply -f manifest.yml

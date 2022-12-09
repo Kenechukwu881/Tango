@@ -45,11 +45,11 @@ data "aws_vpc" "tangovpc" {
     values = ["Staging tangoVPC"]
   }
 }
-data "aws_subnet_ids" "private"{
+data "aws_subnet_ids" "public"{
   vpc_id = "${data.aws_vpc.tangovpc.id}"
   filter {
     name = "tag:Name"
-    values = ["staging_tango_private_1a","staging_tango_private_1b"]
+    values = ["staging_tango_public_1a","staging_tango_public_1b"]
   }
 }
 
@@ -119,11 +119,12 @@ resource "aws_security_group_rule" "demo-cluster-ingress-workstation-https" {
 
 resource "aws_eks_cluster" "tangoeks_cluster" {
   name     = var.cluster-name
+  version = var.cluster-version
   role_arn = aws_iam_role.tango-cluster.arn
 
   vpc_config {
     security_group_ids = [aws_security_group.tangoSG-cluster.id]
-    subnet_ids = [sort(data.aws_subnet_ids.private.ids)[0],sort(data.aws_subnet_ids.private.ids)[1]]
+    subnet_ids = [sort(data.aws_subnet_ids.public.ids)[0],sort(data.aws_subnet_ids.public.ids)[1]]
   }
 
   depends_on = [
@@ -258,6 +259,11 @@ resource "aws_iam_role_policy_attachment" "tango-node-AmazonSSMFullAccess" {
   role       = aws_iam_role.tango-node.name
 }
 
+resource "aws_iam_role_policy_attachment" "tango-node-ElasticLoadBalancingFullAccess" {
+  policy_arn = "arn:aws:iam::aws:policy/ElasticLoadBalancingFullAccess"
+  role       = aws_iam_role.tango-node.name
+}
+
 resource "aws_iam_role_policy_attachment" "tango-node-AmazonEKS_CNI_Policy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
   role       = aws_iam_role.tango-node.name
@@ -272,7 +278,7 @@ resource "aws_eks_node_group" "tango_nodegroup" {
   cluster_name    = var.cluster-name
   node_group_name = var.node_group_name
   node_role_arn   = aws_iam_role.tango-node.arn
-  subnet_ids      = [sort(data.aws_subnet_ids.private.ids)[0],sort(data.aws_subnet_ids.private.ids)[1]]
+  subnet_ids      = [sort(data.aws_subnet_ids.public.ids)[0],sort(data.aws_subnet_ids.public.ids)[1]]
   instance_types = [var.eks_node_instance_type]
 
   scaling_config {
@@ -284,6 +290,7 @@ resource "aws_eks_node_group" "tango_nodegroup" {
   depends_on = [
     aws_iam_role_policy_attachment.workers_autoscaling,
     aws_iam_role_policy_attachment.tango-node-AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.tango-node-ElasticLoadBalancingFullAccess,
     aws_iam_role_policy_attachment.tango-node-AmazonEKS_CNI_Policy,
     aws_iam_role_policy_attachment.tango-node-AmazonEC2ContainerRegistryReadOnly,
     aws_iam_role_policy_attachment.tango-node-AmazonSSMFullAccess,
@@ -291,5 +298,55 @@ resource "aws_eks_node_group" "tango_nodegroup" {
   tags = {
     Name = var.node_name                
     Environment = var.eks_tag_environment                    
+  }
+}
+
+
+locals {
+  k8s_service_account_name      = "iam-role-test-SA"
+  k8s_service_account_namespace = "game-2048"
+
+  # Get the EKS OIDC Issuer without https:// prefix
+  eks_oidc_issuer = trimprefix(aws_eks_cluster.tangoeks_cluster.identity[0].oidc[0].issuer, "https://")
+}
+
+# Get the caller identity so that we can get the AWS Account ID
+
+data "aws_caller_identity" "current" {}
+
+# Get the EKS cluster we want to target
+
+# data "aws_eks_cluster" "tangoeks_cluster" {
+#   name = var.cluster-name
+# }
+
+# Create the IAM role that will be assumed by the service account
+
+resource "aws_iam_role" "iam_role" {
+  name               = "iam-role"
+  assume_role_policy = data.aws_iam_policy_document.iam_role.json
+}
+
+# Create IAM policy allowing the k8s service account to assume the IAM role
+
+data "aws_iam_policy_document" "iam_role" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type = "Federated"
+      identifiers = [
+        "arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/${local.eks_oidc_issuer}"
+      ]
+    }
+
+    # Limit the scope so that only our desired service account can assume this role
+    condition {
+      test     = "StringEquals"
+      variable = "${local.eks_oidc_issuer}:sub"
+      values = [
+        "system:serviceaccount:${local.k8s_service_account_namespace}:${local.k8s_service_account_name}"
+      ]
+    }
   }
 }

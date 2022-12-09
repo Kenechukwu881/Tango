@@ -3,6 +3,11 @@ variable "cluster-name" {
   default = ""
 }
 
+variable "cluster-version" {
+  type = string
+  default = ""
+}
+
 variable "eks_node_instance_type" {
   type = string
   default = ""

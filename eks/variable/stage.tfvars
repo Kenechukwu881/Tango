@@ -1,4 +1,5 @@
     cluster-name = "tangoeks_cluster"
+    cluster-version = "1.23"
     eks_node_instance_type = "t2.medium"
     eks_tag_environment= "Staging_env"
     iam_role_name = "tangoeks-role"
