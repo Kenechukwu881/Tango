@@ -1,5 +1,5 @@
 # Tango
-# Project to standup 2048-game test
+# Project to standup 2048-game test. this is for a project
 # Using Terraform to provision a fully managed Amazon EKS Cluster
 
 ##### Prerequisite
